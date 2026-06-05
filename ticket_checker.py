@@ -5,7 +5,7 @@ import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 BASE_URL = "https://play-the-future-vfu.up.railway.app/vote"
-CHARSET = string.ascii_lowercase + string.digits  # a-z + 0-9
+CHARSET = string.ascii_uppercase  # A-Z only
 CODE_LENGTH = 8
 TOTAL_CODES = 100
 WORKERS = 10
