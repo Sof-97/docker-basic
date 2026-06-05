@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 BASE_URL = "https://play-the-future-vfu.up.railway.app/vote"
 CHARSET = string.ascii_uppercase  # A-Z only
-INVALID_MARKER = "ticket non valido"
+INVALID_MARKERS = ["ticket non valido", "host not in allowlist"]
 WORKERS = 20
 
 # --- Config ---
@@ -18,7 +18,8 @@ def check_code(code):
     url = f"{BASE_URL}/{code}"
     try:
         r = requests.get(url, timeout=10)
-        if INVALID_MARKER not in r.text.lower():
+        body = r.text.lower()
+        if not any(m in body for m in INVALID_MARKERS):
             return url, r.status_code, r.text[:300]
     except requests.RequestException as e:
         print(f"\n[ERR] {code}: {e}")
